@@ -4,6 +4,8 @@ android/
 www/
 node_modules/
 release_files/
+public/
+.wrangler/
 
 # OS / editor cruft
 .DS_Store
