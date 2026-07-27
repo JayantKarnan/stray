@@ -249,6 +249,36 @@ deploy + test the whole thing myself end-to-end the same way as the website.
       same scene. Also explicitly verified single-player is fully unaffected (dog moves normally, zero
       errors) when pointed at a deliberately unreachable relay URL.
 
+## Stale service-worker cache bug — "I can't even see the other players" (user report, fixed + verified)
+Root cause: `sw.js` used pure cache-first for `index.html`, and `CACHE_NAME` never changed across 4
+deploys (joystick fix, og:image fix, multiplayer server, multiplayer client) — so any browser that had
+loaded the site even once before kept serving that original cached page FOREVER, silently skipping
+every subsequent deploy, including the one that added multiplayer. This bug class was invisible to
+every prior headless test because those always used fresh browser profiles with no pre-existing cache.
+- [x] `index.html`/navigations are now NETWORK-FIRST (fall back to cache only when offline) — the shell
+      is exactly the file that changes on every deploy, so it must never lose to a stale cache. Large
+      static libs (three.module.js, cannon-es.js, dog.glb, jsm/, icons) stay cache-first since they're
+      effectively immutable and benefit from instant/offline loading.
+- [x] `deploy.sh` now stamps a unique `CACHE_NAME` into `sw.js` on every deploy (`sed`-substitutes a
+      `__BUILD__` token with a timestamp) — this exact bug class (a hand-maintained version string that
+      quietly never gets bumped) can't recur.
+- [x] Added `cache: 'no-store'` to the network-first fetch itself, so the browser's own HTTP cache layer
+      can't hand back a stale shell independent of the Service Worker's Cache Storage.
+- Verified by fully REPRODUCING the bug end-to-end first: a persistent browser profile visits an "old"
+      fixture site (old buggy sw.js) to seed a real stale cache, the site is swapped live underneath it
+      to a "new" fixture (matching a real redeploy), then reloaded. CONFIRMED: before the fix, the old
+      content never self-heals no matter how many reloads; with the fix, it self-heals within one extra
+      reload (the browser needs one navigation to detect+install any SW update — standard, unavoidable
+      platform behavior) and the stale cache is fully evicted after that.
+      GOTCHA for any future repro test like this: use a local test server that sends
+      `Cache-Control: no-store` (Python's bare `http.server` sends no cache headers at all, which lets
+      the browser's own HTTP cache produce a FALSE stale-content result unrelated to the actual Service
+      Worker logic being tested — confirmed Cloudflare Pages itself already sends
+      `public, max-age=0, must-revalidate` site-wide, so this was purely a test-fixture artifact, not a
+      real risk on the actual deployed site).
+User impact: **close the tab fully and reopen the site (or reload twice)** to pick up this fix once —
+after that, every future deploy self-heals automatically on the next normal visit.
+
 ## Real-device UI bugs (user bug reports — all fixed + headless-verified)
 - [x] Real-device mobile UI bug (user found via actual phone testing, short landscape viewport with
       the browser's address bar visible): the 4-button D-pad + 4-row action-button cluster was tall
