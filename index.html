@@ -144,22 +144,39 @@
     padding:6px; z-index:1000; display:none; white-space:pre-wrap;
   }
   #touch-controls {
-    position:fixed; bottom:20px; left:0; right:0; display:flex; justify-content:space-between;
-    padding:0 20px; pointer-events:none; z-index:5;
+    position:fixed; bottom:8px; left:0; right:0; display:flex; justify-content:space-between;
+    align-items:flex-end; padding:0 16px; pointer-events:none; z-index:5;
   }
   #touch-controls > div { pointer-events:auto; }
   .tbtn {
-    width:60px; height:60px; margin:4px; border-radius:50%;
+    width:52px; height:52px; margin:3px; border-radius:50%;
     background:rgba(255,255,255,0.15); border:2px solid rgba(255,255,255,0.3);
-    color:#fff; font-family:monospace; font-size:18px; display:flex; align-items:center;
-    justify-content:center; user-select:none;
+    color:#fff; font-family:monospace; font-size:14px; display:flex; align-items:center;
+    justify-content:center; user-select:none; flex-shrink:0;
   }
   .tbtn.active { background:rgba(124,252,58,0.4); border-color:#7CFC3A; } /* toggled-on (sprint) */
-  #dpad { display:grid; grid-template-columns:repeat(3, 60px); grid-template-rows:repeat(3, 60px); }
-  #dpad .tbtn:nth-child(1){grid-column:2;grid-row:1;}
-  #dpad .tbtn:nth-child(2){grid-column:1;grid-row:2;}
-  #dpad .tbtn:nth-child(3){grid-column:3;grid-row:2;}
-  #dpad .tbtn:nth-child(4){grid-column:2;grid-row:3;}
+  /* virtual joystick — a single draggable knob replaces the old 4-button D-pad, taking far less
+     vertical space so it can't creep up into the score/instincts HUD on short mobile viewports */
+  #joystick {
+    position:relative; width:104px; height:104px; border-radius:50%;
+    background:rgba(255,255,255,0.10); border:2px solid rgba(255,255,255,0.28);
+    touch-action:none; flex-shrink:0;
+  }
+  .joy-knob {
+    position:absolute; width:46px; height:46px; border-radius:50%; left:50%; top:50%;
+    background:rgba(255,255,255,0.34); border:2px solid rgba(255,255,255,0.6);
+    transform:translate(-50%,-50%); pointer-events:none;
+  }
+  /* short landscape viewports (phone in landscape with the browser's address bar visible) get an
+     even more compact control cluster so nothing can reach up into the instincts panel */
+  @media (max-height:460px) and (orientation:landscape) {
+    #touch-controls { bottom:4px; padding:0 10px; }
+    .tbtn { width:44px; height:44px; margin:2px; font-size:12px; }
+    #joystick { width:88px; height:88px; }
+    .joy-knob { width:38px; height:38px; }
+    #instincts-hud { top:6px; }
+    #score-hud, #pause-btn { top:6px; }
+  }
 </style>
 </head>
 <body>
@@ -221,26 +238,17 @@
 </div>
 <div id="err-log"></div>
 <div id="touch-controls">
-  <div id="dpad">
-    <div class="tbtn" data-k="up">&#9650;</div>
-    <div class="tbtn" data-k="left">&#9664;</div>
-    <div class="tbtn" data-k="right">&#9654;</div>
-    <div class="tbtn" data-k="down">&#9660;</div>
-  </div>
-  <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:6px;">
-    <div style="display:flex; gap:6px;">
+  <div id="joystick"><div class="joy-knob" id="joystick-knob"></div></div>
+  <div style="display:flex; flex-direction:column; justify-content:flex-end; gap:4px;">
+    <div style="display:flex; gap:4px;">
       <div class="tbtn" data-k="headbutt">RAM</div>
       <div class="tbtn" data-k="grab">GRAB</div>
-    </div>
-    <div style="display:flex; gap:6px;">
       <div class="tbtn" data-k="bark">BARK</div>
       <div class="tbtn tbtn-jump" data-k="jump">JUMP</div>
     </div>
-    <div style="display:flex; gap:6px;">
+    <div style="display:flex; gap:4px;">
       <div class="tbtn" data-k="flop">FLOP</div>
       <div class="tbtn" data-k="sprint">RUN</div>
-    </div>
-    <div style="display:flex; gap:6px;">
       <div class="tbtn" data-k="mut">MUT</div>
     </div>
   </div>
@@ -2998,6 +3006,59 @@ document.querySelectorAll('.tbtn').forEach(btn => {
   btn.addEventListener('mouseup', set(false));
   btn.addEventListener('mouseleave', set(false));
 });
+
+// virtual joystick: drives the same touchState.up/down/left/right booleans the old D-pad buttons
+// did, so inputVector() and everything downstream needs zero changes. Pointer Events (not separate
+// touch/mouse handlers) so one code path covers touch, mouse, and pen, and setPointerCapture keeps
+// tracking the drag even once the finger moves outside the visible base circle.
+(function setupJoystick() {
+  const base = document.getElementById('joystick');
+  const knob = document.getElementById('joystick-knob');
+  if (!base || !knob) return;
+  const MAX_DIST = 34;   // px the knob can travel from centre
+  const DEADZONE = 0.32; // fraction of MAX_DIST before a direction registers (avoids drift/jitter)
+  let activePointerId = null, cx = 0, cy = 0;
+
+  function setDirs(nx, ny) {
+    touchState.up = ny < -DEADZONE;
+    touchState.down = ny > DEADZONE;
+    touchState.left = nx < -DEADZONE;
+    touchState.right = nx > DEADZONE;
+  }
+  function resetDirs() {
+    touchState.up = touchState.down = touchState.left = touchState.right = false;
+    knob.style.transform = 'translate(-50%, -50%)';
+  }
+  function onMove(clientX, clientY) {
+    let dx = clientX - cx, dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > MAX_DIST) { dx = dx / dist * MAX_DIST; dy = dy / dist * MAX_DIST; }
+    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    setDirs(dx / MAX_DIST, dy / MAX_DIST);
+  }
+  base.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    ensureAudio(); loadWoof(); loadMoo();
+    base.setPointerCapture(e.pointerId);
+    activePointerId = e.pointerId;
+    const rect = base.getBoundingClientRect();
+    cx = rect.left + rect.width / 2;
+    cy = rect.top + rect.height / 2;
+    onMove(e.clientX, e.clientY);
+  });
+  base.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== activePointerId) return;
+    e.preventDefault();
+    onMove(e.clientX, e.clientY);
+  });
+  const endDrag = (e) => {
+    if (e.pointerId !== activePointerId) return;
+    activePointerId = null;
+    resetDirs();
+  };
+  base.addEventListener('pointerup', endDrag);
+  base.addEventListener('pointercancel', endDrag);
+})();
 
 let jumpRequested = false;      // consumed by updateDog on the next frame
 let headbuttRequested = false;  // edge-triggered headbutt
