@@ -215,6 +215,41 @@ Prepping STRAY for a $0 public web deploy (Cloudflare Pages free tier + itch.io,
 - [ ] Mirror-publish to itch.io for free discovery (not done — needs the user's itch.io account).
 - [ ] Add Cloudflare Web Analytics; confirm the service worker actually installs via a real browser's
       DevTools → Application tab (headless testing can't observe this — see the note above).
+## MULTIPLAYER v1 (user request) — LIVE, no Raspberry Pi needed
+Chose Cloudflare Workers + Durable Objects over a Pi/Colyseus setup: zero new accounts/hardware since
+this machine was already authenticated with Cloudflare for the Pages deploy, and I could build +
+deploy + test the whole thing myself end-to-end the same way as the website.
+- [x] **Server** (`server/`, deployed to `https://stray-mp.jayantkarnan.workers.dev`): a single
+      `BazaarRoom` Durable Object holds every connected player's last-known state and relays it to
+      everyone else over WebSocket. Deliberately NOT authoritative physics — cannon-es is non-
+      deterministic across machines, so every client only ever runs its OWN dog locally and displays
+      others as puppets. Uses the WebSocket Hibernation API (`state.acceptWebSocket` +
+      `ws.serializeAttachment`/`deserializeAttachment`) so the DO isn't billed just for holding idle
+      connections open — the modern recommended pattern for exactly this kind of relay. One global
+      room for v1 (`idFromName('main')`), capped at 60 players. `/health` and `/stats` endpoints.
+      GOTCHA: had to register a `workers.dev` subdomain first (`wrangler deploy` fails non-
+      interactively otherwise) — did it via a raw `PUT /accounts/{id}/workers/subdomain` API call using
+      wrangler's own stored OAuth token, since there's no scriptable CLI command for it.
+      GOTCHA: an early version special-cased `GET /` for the health check BEFORE checking the
+      `Upgrade: websocket` header, silently swallowing every real WebSocket handshake at the root path
+      (returned 200 instead of 101). Fixed by moving the health check to its own `/health` path so
+      `/` is unambiguously the WS endpoint.
+- [x] **Client** (`RemoteDog` class + multiplayer networking in `index.html`): on `startGame()`,
+      connects to the relay, sends `{x,y,z,yaw,anim,held}` at 15Hz, and spawns a tinted clone of the
+      REAL animated dog model for every other player (reuses `cloneSkinned`/`playCritterAction` exactly
+      like NPC dogs already do). Remote position/yaw are exponentially smoothed toward the latest
+      network sample so a jittery ~15Hz tick still reads as smooth motion. Entirely feature-flagged and
+      try/catch-guarded at every entry point — connection failures silently retry every 3s and
+      single-player is provably unaffected if the relay is unreachable. A small "🐕 N dogs online" HUD.
+      NOT yet interactive — puppets are visual-only (no collision), so you can't bump into other
+      players yet (a good v2 target).
+- Verified with TWO REAL headless Chrome instances driven independently via raw CDP (not simulated) —
+      mutual visibility on join, position sync confirmed within one network tick after a teleport,
+      puppet cleanup confirmed on disconnect, and a screenshot showing two distinct dog models in the
+      same scene. Also explicitly verified single-player is fully unaffected (dog moves normally, zero
+      errors) when pointed at a deliberately unreachable relay URL.
+
+## Real-device UI bugs (user bug reports — all fixed + headless-verified)
 - [x] Real-device mobile UI bug (user found via actual phone testing, short landscape viewport with
       the browser's address bar visible): the 4-button D-pad + 4-row action-button cluster was tall
       enough to creep up and overlap the INSTINCTS panel. Fixed: D-pad replaced with a single draggable
