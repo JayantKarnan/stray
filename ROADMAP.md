@@ -213,9 +213,18 @@ Prepping STRAY for a $0 public web deploy (Cloudflare Pages free tier + itch.io,
       manifest.json/sw.js/icons/, deliberately excluding `android/`, `node_modules/`, `.git`) and
       pushes it via wrangler (already-authenticated, no login needed again on this machine).
 - [ ] Mirror-publish to itch.io for free discovery (not done — needs the user's itch.io account).
-- [ ] Add Cloudflare Web Analytics; do a real mobile-browser pass (Chrome Android + Safari iOS) on the
-      live URL; confirm the service worker actually installs via a real browser's DevTools → Application
-      tab (headless testing can't observe this — see the note above).
+- [ ] Add Cloudflare Web Analytics; confirm the service worker actually installs via a real browser's
+      DevTools → Application tab (headless testing can't observe this — see the note above).
+- [x] Real-device mobile UI bug (user found via actual phone testing, short landscape viewport with
+      the browser's address bar visible): the 4-button D-pad + 4-row action-button cluster was tall
+      enough to creep up and overlap the INSTINCTS panel. Fixed: D-pad replaced with a single draggable
+      **virtual joystick** (Pointer Events; drives the same `touchState.up/down/left/right` booleans
+      the D-pad did, so `inputVector()` needed zero changes); action buttons compacted 4 rows→2
+      (RAM/GRAB/BARK/JUMP, FLOP/RUN/MUT); whole cluster moved down (bottom 20px→8px); a
+      `@media (max-height:460px) and (orientation:landscape)` rule shrinks everything further on short
+      phone viewports. Verified headlessly at 1280×393 / 960×420 / 844×390 (matching the reported
+      device) — joystick drag correctly drives movement, clear separation from the instincts panel,
+      zero JS errors on the redeployed live site.
 
 ## Expansion fix round (user bug report — all fixed + headless-verified)
 (Blender MCP is NOT available in this environment, so models were upgraded procedurally in-engine —
