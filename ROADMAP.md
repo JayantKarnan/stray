@@ -194,9 +194,28 @@ Prepping STRAY for a $0 public web deploy (Cloudflare Pages free tier + itch.io,
       before the SW's async install lifecycle resolves, a known headless-testing limitation, not a code
       issue (the registration follows the standard MDN pattern). Confirm it in a real browser's
       DevTools → Application → Service Workers panel after deploying.
-- [ ] Push to GitHub + connect Cloudflare Pages (needs the user's GitHub/Cloudflare accounts — I can't
-      create those). Also mirror-publish to itch.io for free discovery.
-- [ ] Once live: make `og:image` absolute, add Cloudflare Web Analytics, do a real mobile-browser pass.
+- [x] **LIVE at https://stray-1gq.pages.dev/** — pushed to GitHub (`github.com/JayantKarnan/stray`,
+      `gh` CLI installed locally to `~/.local/bin` + browser device-flow login) and deployed to
+      Cloudflare Pages (`wrangler login` browser OAuth, then `wrangler pages project create stray` +
+      `wrangler pages deploy public --project-name stray`). `stray` alone was taken so Cloudflare
+      assigned `stray-1gq.pages.dev`. `og:image`/`og:url` updated to the real absolute URL. Verified
+      headless against the LIVE url: 200s on every asset, valid manifest.json, zero JS errors.
+      GOTCHA: wrangler 4.x's `pages deploy` first tries to "delegate" to its newer unified Workers-
+      with-assets platform and fails non-interactively (needs a workers.dev subdomain) — fix is either
+      `--force`, or (cleaner) explicitly `wrangler pages project create <name>` first, then
+      `wrangler pages deploy <dir> --project-name <name>` targets the existing classic Pages project
+      directly and skips the delegation attempt entirely. Also deletes/ignores the `wrangler.jsonc`
+      that first attempt auto-generates (that's Workers config, not needed for classic Pages) and
+      reverts the `deploy`/`preview` npm scripts it adds (they call `wrangler deploy`/`dev`, which are
+      Workers commands, not what this static-site project uses).
+      **Redeploy any time with `./deploy.sh` or `npm run deploy`** — rebuilds `public/` (gitignored,
+      regenerated from source: index.html/three.module.js/cannon-es.js/audio-assets.js/dog.glb/jsm/
+      manifest.json/sw.js/icons/, deliberately excluding `android/`, `node_modules/`, `.git`) and
+      pushes it via wrangler (already-authenticated, no login needed again on this machine).
+- [ ] Mirror-publish to itch.io for free discovery (not done — needs the user's itch.io account).
+- [ ] Add Cloudflare Web Analytics; do a real mobile-browser pass (Chrome Android + Safari iOS) on the
+      live URL; confirm the service worker actually installs via a real browser's DevTools → Application
+      tab (headless testing can't observe this — see the note above).
 
 ## Expansion fix round (user bug report — all fixed + headless-verified)
 (Blender MCP is NOT available in this environment, so models were upgraded procedurally in-engine —
