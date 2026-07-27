@@ -1,0 +1,10 @@
+# Android/Capacitor build output — regenerable, huge, and android/keystore.properties contains
+# the signing password in plaintext. Never commit android/ to a repo that will be deployed publicly.
+android/
+www/
+node_modules/
+release_files/
+
+# OS / editor cruft
+.DS_Store
+*.log

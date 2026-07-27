@@ -1,0 +1,15 @@
+{
+  "name": "stray",
+  "version": "1.0.0",
+  "description": "STRAY — a street-dog simulator",
+  "type": "commonjs",
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/core": "^8.4.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5"
+  }
+}
