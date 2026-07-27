@@ -11,16 +11,17 @@
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/icon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
-<!-- social preview cards (og:image is relative for now — make it an absolute URL once the game
-     has a live domain, since most crawlers (Facebook/Twitter/Discord) require an absolute URL) -->
+<!-- social preview cards: og:image must be an ABSOLUTE url (Facebook/Twitter/Discord crawlers
+     require it) — update this if the site ever moves to a custom domain -->
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://stray-1gq.pages.dev/">
 <meta property="og:title" content="STRAY — a street-dog simulator">
 <meta property="og:description" content="Go feral in an Indian bazaar as a street dog — headbutt, ragdoll, blow things up, dodge the train, and climb your way to the castle throne.">
-<meta property="og:image" content="./icons/og-image.jpg">
+<meta property="og:image" content="https://stray-1gq.pages.dev/icons/og-image.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="STRAY — a street-dog simulator">
 <meta name="twitter:description" content="Go feral in an Indian bazaar as a street dog.">
-<meta name="twitter:image" content="./icons/og-image.jpg">
+<meta name="twitter:image" content="https://stray-1gq.pages.dev/icons/og-image.jpg">
 <style>
   html, body { margin:0; padding:0; overflow:hidden; background:#0a0a0a; height:100%; width:100%; }
   canvas { display:block; touch-action:none; }

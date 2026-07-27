@@ -167,6 +167,37 @@ excluded from both district footprints via `inCorridor`.
       blocks AFTER the shared textures/prop helpers; and don't shadow module globals (`_q`) in test
       injectors.
 
+## Web deploy prep (free-hosting plan, user request)
+Prepping STRAY for a $0 public web deploy (Cloudflare Pages free tier + itch.io, no paid domain).
+- [x] Git repo initialized at `~/Projects/stray` (branch `main`). `.gitignore` excludes `android/`
+      (contains `keystore.properties` with the signing password in PLAINTEXT — never let this reach
+      a public repo), `www/` (a build-time copy for Capacitor), `node_modules/`, `release_files/`.
+- [x] `manifest.json` — installable PWA: fullscreen + `orientation: landscape` (a plain mobile browser
+      tab can't lock orientation; an installed PWA can), full icon set, theme color `#ef851d`.
+- [x] `sw.js` — cache-first service worker precaching the whole (small, self-contained) game for
+      instant repeat loads + offline play; versioned via `CACHE_NAME` (bump on any deploy that changes
+      cached files). Registered from `index.html` guarded by `'serviceWorker' in navigator` +
+      `location.protocol !== 'file:'`.
+- [x] Icon set generated from the Android paw-print icon (`assets/icon.png`, 1024×1024) via Pillow:
+      `icons/icon-{16..512}.png`, `icons/favicon.ico` (multi-res), `icons/icon-maskable-512.png` (art
+      shrunk to the inner 80% safe-zone so an adaptive/circular mask never clips it).
+- [x] Social preview: `icons/og-image.jpg` (1200×630) cropped from the Android splash art; wired via
+      Open Graph + Twitter Card meta tags in `<head>`. NOTE: `og:image` is currently a RELATIVE path —
+      make it an absolute URL once the game has a live domain, since Facebook/Twitter/Discord crawlers
+      generally require absolute URLs to fetch the preview image.
+- [x] `<head>` also got a real `<title>`/description, theme-color, and favicon `<link>`s (there were
+      none before).
+- Headless-verified: index.html loads with zero JS errors after these changes (game logic untouched —
+      only `<head>` tags + one small closing `<script>` added); manifest.json is valid JSON; sw.js,
+      favicon, and og-image all serve 200 over http. NOTE: could NOT verify the service worker actually
+      *installs* headlessly — Chrome's `--dump-dom` (with or without `--virtual-time-budget`) snapshots
+      before the SW's async install lifecycle resolves, a known headless-testing limitation, not a code
+      issue (the registration follows the standard MDN pattern). Confirm it in a real browser's
+      DevTools → Application → Service Workers panel after deploying.
+- [ ] Push to GitHub + connect Cloudflare Pages (needs the user's GitHub/Cloudflare accounts — I can't
+      create those). Also mirror-publish to itch.io for free discovery.
+- [ ] Once live: make `og:image` absolute, add Cloudflare Web Analytics, do a real mobile-browser pass.
+
 ## Expansion fix round (user bug report — all fixed + headless-verified)
 (Blender MCP is NOT available in this environment, so models were upgraded procedurally in-engine —
 also the right call for a single-file offline game + performance with this many characters.)
