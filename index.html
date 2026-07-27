@@ -2075,6 +2075,147 @@ function playCritterAction(c, name, fade = 0.2) {
 
 function activeDogVisual() { return (dogVisual && modelReady) ? dogVisual : dogGroup; }
 
+// ================= Multiplayer puppet: a tinted clone of the real dog model, driven purely by
+// network state (never physics — cannon-es is non-deterministic across machines, so a remote
+// player's dog is only ever displayed here, never simulated) =================
+class RemoteDog {
+  constructor(id, coatColor) {
+    this.id = id;
+    this.group = new THREE.Group();
+    this.group.rotation.order = 'YXZ';
+    scene.add(this.group);
+    this.mixer = null; this.dogActions = {}; this.curAction = null;
+    const clone = cloneSkinned(dogModelTemplate);
+    clone.traverse(o => {
+      if (o.isSkinnedMesh && o.skeleton) o.skeleton.pose(); // else the cloned skeleton collapses invisible
+      if (o.isMesh) {
+        o.material = o.material.clone();
+        o.material.color = new THREE.Color(coatColor);
+        o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+      }
+    });
+    this.group.add(clone);
+    this.mixer = new THREE.AnimationMixer(clone);
+    dogModelClips.forEach(clip => { this.dogActions[clip.name.split('|').pop()] = this.mixer.clipAction(clip); });
+    ['Death', 'Headbutt', 'Jump_Start'].forEach(n => { if (this.dogActions[n]) { this.dogActions[n].loop = THREE.LoopOnce; this.dogActions[n].clampWhenFinished = true; } });
+    playCritterAction(this, 'Idle', 0);
+    // target = latest network state; display = smoothed value actually rendered, so a jittery
+    // ~15Hz network tick still reads as smooth motion
+    this.target = { x: 0, y: 0.32, z: 5, yaw: 0, anim: 'Idle' };
+    this.display = { x: 0, y: 0.32, z: 5, yaw: 0 };
+  }
+  applyState(state) {
+    if (typeof state.x === 'number') this.target.x = state.x;
+    if (typeof state.y === 'number') this.target.y = state.y;
+    if (typeof state.z === 'number') this.target.z = state.z;
+    if (typeof state.yaw === 'number') this.target.yaw = state.yaw;
+    if (typeof state.anim === 'string') this.target.anim = state.anim;
+  }
+  update(dt) {
+    const k = Math.min(1, dt * 10); // exponential smoothing toward the last network sample
+    this.display.x += (this.target.x - this.display.x) * k;
+    this.display.z += (this.target.z - this.display.z) * k;
+    this.display.y += (this.target.y - this.display.y) * k;
+    let dyaw = this.target.yaw - this.display.yaw;
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    this.display.yaw += dyaw * k;
+    this.group.position.set(this.display.x, this.display.y - 0.32, this.display.z);
+    this.group.rotation.set(0, -this.display.yaw, 0);
+    playCritterAction(this, this.dogActions[this.target.anim] ? this.target.anim : 'Idle', 0.15);
+    this.mixer.update(dt);
+  }
+  dispose() { scene.remove(this.group); }
+}
+
+// ---- multiplayer connection: optional, feature-flagged, must never break single-player if the
+// relay is unreachable (every entry point is try/catch-guarded) ----
+const MP_URL = 'wss://stray-mp.jayantkarnan.workers.dev/';
+const MP_SEND_HZ = 15;
+const remoteDogs = new Map(); // id -> RemoteDog
+const mpPending = [];         // {id, coatColor, initialState} waiting on modelReady before spawning
+let mpSocket = null, mpConnected = false, mpMyId = null, mpSendAccum = 0, mpStarted = false, mpReconnectTimer = null;
+const mpHudEl = document.createElement('div');
+mpHudEl.id = 'mp-hud';
+mpHudEl.style.cssText = 'position:fixed;top:118px;left:14px;font:700 13px Arial,sans-serif;color:#8fd0ff;text-shadow:0 2px 4px rgba(0,0,0,0.85);z-index:10;pointer-events:none;';
+document.body.appendChild(mpHudEl);
+
+function mpSpawnOrQueue(id, coatColor, initialState) {
+  if (id === mpMyId || remoteDogs.has(id) || mpPending.some(p => p.id === id)) return;
+  mpPending.push({ id, coatColor, initialState });
+}
+function mpDrainPending() {
+  if (!modelReady || mpPending.length === 0) return;
+  while (mpPending.length) {
+    const { id, coatColor, initialState } = mpPending.shift();
+    if (remoteDogs.has(id)) continue;
+    const rd = new RemoteDog(id, coatColor);
+    if (initialState) rd.applyState(initialState);
+    remoteDogs.set(id, rd);
+  }
+}
+function mpCleanupAll() {
+  for (const rd of remoteDogs.values()) rd.dispose();
+  remoteDogs.clear();
+  mpPending.length = 0;
+  mpMyId = null;
+}
+function mpScheduleReconnect() {
+  if (mpReconnectTimer) return;
+  mpReconnectTimer = setTimeout(() => { mpReconnectTimer = null; mpConnect(); }, 3000);
+}
+function mpConnect() {
+  try {
+    mpSocket = new WebSocket(MP_URL);
+  } catch (e) { mpScheduleReconnect(); return; }
+  mpSocket.addEventListener('open', () => { mpConnected = true; });
+  mpSocket.addEventListener('close', () => { mpConnected = false; mpCleanupAll(); mpScheduleReconnect(); });
+  mpSocket.addEventListener('error', () => {}); // 'close' fires right after; reconnect handled there
+  mpSocket.addEventListener('message', (ev) => {
+    let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === 'welcome') {
+      mpMyId = msg.id;
+      msg.players.forEach(p => mpSpawnOrQueue(p.id, p.coatColor, p));
+    } else if (msg.type === 'join') {
+      mpSpawnOrQueue(msg.id, msg.coatColor);
+    } else if (msg.type === 'state') {
+      const rd = remoteDogs.get(msg.id);
+      if (rd) rd.applyState(msg);
+      else mpSpawnOrQueue(msg.id, msg.coatColor, msg);
+    } else if (msg.type === 'leave') {
+      const rd = remoteDogs.get(msg.id);
+      if (rd) { rd.dispose(); remoteDogs.delete(msg.id); }
+      const qi = mpPending.findIndex(p => p.id === msg.id);
+      if (qi >= 0) mpPending.splice(qi, 1);
+    }
+  });
+}
+function mpStart() {
+  if (mpStarted) return;
+  mpStarted = true;
+  try { mpConnect(); } catch (e) { /* multiplayer is optional — single-player must still work */ }
+}
+function updateMultiplayer(dt) {
+  mpDrainPending();
+  for (const rd of remoteDogs.values()) rd.update(dt);
+  mpHudEl.textContent = mpConnected ? ('🐕 ' + (remoteDogs.size + 1) + ' dogs online') : '';
+  if (!mpConnected || !mpSocket || mpSocket.readyState !== WebSocket.OPEN) return;
+  mpSendAccum += dt;
+  if (mpSendAccum < 1 / MP_SEND_HZ) return;
+  mpSendAccum = 0;
+  const speed = Math.hypot(dogBody.velocity.x, dogBody.velocity.z);
+  let anim = 'Idle';
+  if (dogRagdoll.active) anim = 'Death';
+  else if (speed > 4.5) anim = 'Run';
+  else if (speed > 0.3) anim = 'Walk';
+  try {
+    mpSocket.send(JSON.stringify({
+      x: dogBody.position.x, y: dogBody.position.y, z: dogBody.position.z, yaw: dogYaw,
+      anim, held: !!heldProp, type: 'state',
+    }));
+  } catch (e) { /* socket mid-teardown; next tick or the close handler will sort it out */ }
+}
+
 // place the active visual on the control body: upright+yaw normally, full tumble quaternion in ragdoll
 function syncDogVisualToBody(ragdoll) {
   const v = activeDogVisual();
@@ -3736,6 +3877,7 @@ function step(dt) {
   updateBaraat(dt);
   updateTongue(dt);
   updateSunFollow(); // Phase 9: keep the shadow box on the dog
+  updateMultiplayer(dt);
   updateCamera(dt);
 }
 
@@ -3760,6 +3902,7 @@ function startGame() {
   titleScreen.classList.add('hide');
   ensureAudio(); loadWoof(); loadMoo();
   startMusic(); // kick off the silly background loop
+  mpStart(); // optional multiplayer relay — never blocks single-player if unreachable
   clock.getDelta(); // drop the accumulated pre-start dt
 }
 function setPaused(p) {
@@ -3828,6 +3971,14 @@ window.__debug = {
     composer.render();
   },
   resumeLoop: () => { if (!running) { running = true; clock.getDelta(); animate(); } },
+  mp: {
+    connected: () => mpConnected,
+    myId: () => mpMyId,
+    remoteCount: () => remoteDogs.size,
+    remoteIds: () => Array.from(remoteDogs.keys()),
+    remoteState: (id) => { const rd = remoteDogs.get(id); return rd ? { target: rd.target, display: rd.display } : null; },
+    start: () => mpStart(),
+  },
 };
 </script>
 <script>
